@@ -23,6 +23,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <assert.h>
 
 const unsigned char scramble[256] =
 {
@@ -44,10 +45,50 @@ const unsigned char scramble[256] =
     0x10, 0x15, 0x16, 0x17, 0x1c, 0x1d, 0x1e, 0x1f, 0x11, 0x12, 0x13, 0x18, 0x19, 0x1a, 0x1b, 0xff
 };
 
+struct teac_header {
+   char product[8];
+   uint16_t version;
+   uint16_t build;
+   uint16_t year;
+   uint8_t month;
+   uint8_t day;
+   uint32_t unknown;
+   uint32_t file_size;
+   uint32_t zero0;
+   uint32_t zero1;
+} __attribute__((packed));
+
 uint32_t read32le(void *buf)
 {
     uint8_t *p = buf;
     return p[0] | p[1] << 8 | p[2] << 16 | p[3] << 24;
+}
+
+uint32_t read32be(void *buf)
+{
+    uint8_t *p = buf;
+    return p[3] | p[2] << 8 | p[1] << 16 | p[0] << 24;
+}
+
+uint32_t read16be(void *buf)
+{
+    uint8_t *p = buf;
+    return p[1] | p[0] << 8;
+}
+
+size_t teac_header_print(struct teac_header *head)
+{
+     char buf[9];
+     strncpy(buf, head->product, 9);
+     printf("header info: prod=%s, ", buf);
+     printf("ver=%d, build=%d, ", read16be(&head->version),
+	    read16be(&head->build));
+     printf("stamp=%04d/%02d/%02d, ", read16be(&head->year),
+	    head->month, head->day);
+     printf("size=%d\n", read32be(&head->file_size));
+     printf("\t unknown=0x%x zero0=0x%x zero1=0x%x\n", read32be(&head->unknown),
+	    read32be(&head->zero0), read32be(&head->zero1));
+     return read32be(&head->file_size);
 }
 
 int main(int argc, char **argv)
@@ -60,23 +101,33 @@ int main(int argc, char **argv)
     fseek(f, 0, SEEK_END);
     int size = ftell(f);
     fseek(f, 0, SEEK_SET);
+
+    /* Read header */
+    struct teac_header head;
+    assert(sizeof(head) == 32);
+    int bytes_read = fread(&head, 1, sizeof(head), f);
+    if (bytes_read != sizeof(head))
+	 perror("short read");
+    size_t file_size_from_header = teac_header_print(&head);
+    if (file_size_from_header != size)
+	 fprintf(stderr, "WARNING: unexpected file size, continuing anyway.");
+
+    /* Read scrambled rest */
     unsigned char *buf = malloc(size);
-    fread(buf, 1, size, f);
+    fread(buf, 1, size - sizeof(head), f);
     fclose(f);
 
-    /* The first 8 bytes are the player name */
-    printf("Player: %.8s\n", buf);
     /* The last 4 bytes are a checksum */
-    printf("Checksum: %08x\n", read32le(buf + size - 4));
+    printf("Checksum: %08x\n", read32le(buf + size - sizeof(head) - 4));
     printf("I cannot check it because I do not know the checksum algorithm.\n");
 
-    for(int i = 8; i < size - 4; i++)
+    for(int i = 0; i < size - 4 - sizeof(head); i++)
         buf[i] = scramble[buf[i]];
 
     f = fopen(argv[2], "wb");
     if(f == NULL)
         return printf("cannot open %s: %m\n", argv[2]);
-    fwrite(buf + 8, 1, size - 12, f);
+    fwrite(buf, 1, size - sizeof(head) - 4, f);
     fclose(f);
 
     return 0;
