@@ -111,27 +111,32 @@ int main(int argc, char **argv)
 	 perror("short read");
     teac_header_print(&head);
     if (read32be(&head.file_size) != size)
-	 fprintf(stderr, "WARNING: unexpected file size, continuing anyway.");
+	 fprintf(stderr, "WARNING: unexpected file size, continuing anyway.\n");
 
     /* Read scrambled rest */
     unsigned char *buf = malloc(size);
     fread(buf, 1, size - sizeof(head), f);
     fclose(f);
 
-    /* The last 4 bytes are a checksum */
-    printf("Checksum at EOF: 0x%08x\n", read32le(buf + size - sizeof(head) - 4));
-    printf("I cannot check it because I do not know the checksum algorithm.\n");
-
     int plain_sum = 0;
 
-    for(int i = 0; i < size - 4 - sizeof(head); i++) {
+    for(int i = 0; i < size - sizeof(head); i++) {
 	 buf[i] = scramble[buf[i]];
-	 plain_sum += buf[i];
+	 if (i < size - sizeof(head) - 4)
+	      plain_sum += buf[i];
     }
 
     if (plain_sum != read32be(&head.checksum)) {
 	 fprintf(stderr, "WARNING: Header checksum mismatch: 0x%08x != 0x%08x (computed)\n",
 		read32be(&head.checksum),
+		plain_sum);
+    }
+
+    int checksum_at_eof = read32be(buf + size - sizeof(head) - 4);
+
+    if (plain_sum != checksum_at_eof) {
+	 fprintf(stderr, "WARNING: EOF checksum mismatch: 0x%08x != 0x%08x (computed)\n",
+		checksum_at_eof,
 		plain_sum);
     }
 
