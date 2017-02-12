@@ -52,7 +52,7 @@ struct teac_header {
    uint16_t year;
    uint8_t month;
    uint8_t day;
-   uint32_t unknown;
+   uint32_t checksum;
    uint32_t file_size;
    uint32_t zero0;
    uint32_t zero1;
@@ -76,7 +76,7 @@ uint32_t read16be(void *buf)
     return p[1] | p[0] << 8;
 }
 
-size_t teac_header_print(struct teac_header *head)
+void teac_header_print(struct teac_header *head)
 {
      char buf[9];
      strncpy(buf, head->product, 9);
@@ -86,9 +86,9 @@ size_t teac_header_print(struct teac_header *head)
      printf("stamp=%04d/%02d/%02d, ", read16be(&head->year),
 	    head->month, head->day);
      printf("size=%d\n", read32be(&head->file_size));
-     printf("\t unknown=0x%x zero0=0x%x zero1=0x%x\n", read32be(&head->unknown),
+     printf("\t checksum=0x%x zero0=0x%x zero1=0x%x\n", read32be(&head->checksum),
 	    read32be(&head->zero0), read32be(&head->zero1));
-     return read32be(&head->file_size);
+     return;
 }
 
 int main(int argc, char **argv)
@@ -108,8 +108,8 @@ int main(int argc, char **argv)
     int bytes_read = fread(&head, 1, sizeof(head), f);
     if (bytes_read != sizeof(head))
 	 perror("short read");
-    size_t file_size_from_header = teac_header_print(&head);
-    if (file_size_from_header != size)
+    teac_header_print(&head);
+    if (read32be(&head.file_size) != size)
 	 fprintf(stderr, "WARNING: unexpected file size, continuing anyway.");
 
     /* Read scrambled rest */
@@ -118,11 +118,21 @@ int main(int argc, char **argv)
     fclose(f);
 
     /* The last 4 bytes are a checksum */
-    printf("Checksum: %08x\n", read32le(buf + size - sizeof(head) - 4));
+    printf("Checksum at EOF: 0x%08x\n", read32le(buf + size - sizeof(head) - 4));
     printf("I cannot check it because I do not know the checksum algorithm.\n");
 
-    for(int i = 0; i < size - 4 - sizeof(head); i++)
-        buf[i] = scramble[buf[i]];
+    int plain_sum = 0;
+
+    for(int i = 0; i < size - 4 - sizeof(head); i++) {
+	 buf[i] = scramble[buf[i]];
+	 plain_sum += buf[i];
+    }
+
+    if (plain_sum != read32be(&head.checksum)) {
+	 fprintf(stderr, "WARNING: Header checksum mismatch: 0x%08x != 0x%08x (computed)\n",
+		read32be(&head.checksum),
+		plain_sum);
+    }
 
     f = fopen(argv[2], "wb");
     if(f == NULL)
