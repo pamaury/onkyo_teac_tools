@@ -79,7 +79,8 @@ uint32_t read16be(void *buf)
 void teac_header_print(struct teac_header *head)
 {
      char buf[9];
-     strncpy(buf, head->product, 9);
+     strncpy(buf, head->product, 8);
+     buf[8] = '\0';
      printf("header info: prod=%s, ", buf);
      printf("ver=%d, build=%d, ", read16be(&head->version),
 	    read16be(&head->build));
