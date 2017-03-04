@@ -1,7 +1,10 @@
 CFLAGS=-O2 -Wall -g
-BIN=descramble bfin_boot
+BIN=descramble scramble bfin_boot
 
 all: $(BIN)
+
+scramble: scramble.c
+	$(CC) $(CFLAGS) -o $@ $^
 
 descramble: descramble.c
 	$(CC) $(CFLAGS) -o $@ $^
